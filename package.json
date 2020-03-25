@@ -1,0 +1,19 @@
+{
+  "name": "jenkins-test-service",
+  "version": "1.0.0",
+  "description": "",
+  "main": "handler.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^0.19.2",
+    "dotenv": "^8.2.0"
+  },
+  "devDependencies": {
+    "serverless-dynamodb-local": "^0.2.39",
+    "serverless-offline": "^6.0.0-alpha.67"
+  }
+}
