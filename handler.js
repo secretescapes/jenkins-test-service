@@ -4,11 +4,13 @@ const AWS = require("aws-sdk");
 
 require("dotenv").config();
 
-// TODO: Change endpoint!!
-const dynamodb = new AWS.DynamoDB({
-  region: "eu-west-1",
-  endpoint: "http://localhost:8000"
-});
+const dynamoDbParams = {
+  region: "eu-west-1"
+};
+if (process.env.LOCAL_DYNAMODB_ENDPOINT !== "") {
+  dynamoDbParams["endpoint"] = process.env.LOCAL_DYNAMODB_ENDPOINT;
+}
+const dynamodb = new AWS.DynamoDB(dynamoDbParams);
 
 module.exports.collectTestResults = async event => {
   const buildId = event.pathParameters.buildId;
@@ -22,6 +24,7 @@ module.exports.collectTestResults = async event => {
   const tests = await fetchBuild(buildId);
   await storeResults(tests);
 
+  console.log(`Successfuly collected results for ${buildId}`);
   return {
     statusCode: 200,
     body: JSON.stringify(tests)
@@ -33,40 +36,15 @@ async function storeResults(testResults) {
     try {
       if (testResult.status !== "PASSED") {
         const key = `${testResult.className}.${testResult.name}`;
-        const response = await getResultsFromDB(testResult, key);
+        const response = await getResultsFromDB(key);
         if (response.Item) {
-          const existingTestResults = Array.from(
-            JSON.parse(response.Item.results.S)
+          await updateResultsInDB(
+            key,
+            Array.from(JSON.parse(response.Item.results.S)),
+            testResult
           );
-
-          existingTestResults.push(testResult);
-
-          const updateItemParams = {
-            Key: {
-              test_name: {
-                S: key
-              }
-            },
-            UpdateExpression: `SET results = :value`,
-            ExpressionAttributeValues: {
-              ":value": { S: JSON.stringify(existingTestResults) }
-            },
-            TableName: "test_results"
-          };
-          await dynamodb.updateItem(updateItemParams).promise();
         } else {
-          const putItemParams = {
-            Item: {
-              test_name: {
-                S: key
-              },
-              results: {
-                S: `[${JSON.stringify(testResult)}]`
-              }
-            },
-            TableName: "test_results"
-          };
-          await dynamodb.putItem(putItemParams).promise();
+          await putResultsInDB(key, testResult);
         }
       }
     } catch (err) {
@@ -75,7 +53,45 @@ async function storeResults(testResults) {
   });
 }
 
-async function getResultsFromDB(testResult, key) {
+async function putResultsInDB(key, testResult) {
+  const putItemParams = {
+    Item: {
+      test_name: {
+        S: key
+      },
+      results: {
+        S: `[${JSON.stringify(testResult)}]`
+      }
+    },
+    TableName: "test_results"
+  };
+  await dynamodb.putItem(putItemParams).promise();
+}
+
+async function updateResultsInDB(key, existingTestResults, newTestResults) {
+  if (
+    !existingTestResults
+      .map(result => result.buildId)
+      .includes(newTestResults.buildId)
+  ) {
+    existingTestResults.push(newTestResults);
+
+    const updateItemParams = {
+      Key: {
+        test_name: {
+          S: key
+        }
+      },
+      UpdateExpression: `SET results = :value`,
+      ExpressionAttributeValues: {
+        ":value": { S: JSON.stringify(existingTestResults) }
+      },
+      TableName: "test_results"
+    };
+    await dynamodb.updateItem(updateItemParams).promise();
+  }
+}
+async function getResultsFromDB(key) {
   const params = {
     TableName: "test_results",
     Key: {
@@ -128,7 +144,9 @@ async function fetchBuild(buildId) {
     }))
   );
 
-  console.log(`Response received with code: ${testReportResponse.status}`);
+  console.log(
+    `Response received with code: ${testReportResponse.status} for build ${buildId}`
+  );
 
   return testResults;
 }
