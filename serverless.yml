@@ -3,8 +3,14 @@ service: jenkins-test-service
 provider:
   name: aws
   runtime: nodejs12.x
-  stage: dev
+  stage: ${opt:stage,'dev'}
   region: eu-west-1
+  iamRoleStatements:
+    - Effect: Allow
+      Action:
+        - "cloudwatch:*"
+        - "dynamodb:*"
+      Resource: "*"
 
 custom:
   dynamodb:
@@ -26,13 +32,16 @@ functions:
             parameters:
               paths:
                 buildId: true
+    timeout: 28
+    environment:
+      TABLE_NAME: test_results-${self:provider.stage}
 
 resources: # CloudFormation template syntax
   Resources:
     usersTable:
       Type: AWS::DynamoDB::Table
       Properties:
-        TableName: test_results
+        TableName: test_results-${self:provider.stage}
         AttributeDefinitions:
           - AttributeName: test_name
             AttributeType: "S"
