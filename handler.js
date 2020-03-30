@@ -21,16 +21,20 @@ module.exports.collectTestResults = async event => {
         body: "You have to provide a build id"
       };
     }
-
+    await startLog(buildId);
     const tests = await fetchBuild(buildId);
     await storeResults(tests);
 
     console.log(`Successfuly collected results for ${buildId}`);
+    await endLog(buildId, "COMPLETED");
     return {
       statusCode: 200
     };
   } catch (err) {
     console.error(`ERROR: ${err}`);
+    try {
+      await endLog(buildId, "FAILED");
+    } catch (err) {}
     return {
       statusCode: 500,
       body: JSON.stringify(err)
@@ -47,10 +51,8 @@ async function storeResults(testResults) {
       const key = `${testResult.className}.${testResult.name}`;
       console.log(`Getting results for ${key}`);
       const response = await getResultsFromDB(key);
-      console.log(
-        `Dynamodb getItem response: ${JSON.stringify(response.Item)}`
-      );
-      if (response.Item && response.Item.results) {
+      console.log(`Dynamodb getItem response: ${!!response.Item}`);
+      if (response.Item) {
         await updateResultsInDB(
           key,
           Array.from(response.Item.results.SS),
@@ -67,6 +69,40 @@ async function storeResults(testResults) {
     }
   }
   console.log(`[END] StoreResults`);
+}
+
+async function startLog(buildId) {
+  const item = {
+    Item: {
+      test_build: {
+        S: buildId
+      },
+      status: {
+        S: "RUNNING"
+      }
+    },
+    TableName: process.env.LOG_TABLE_NAME
+  };
+  await dynamodb.putItem(item).promise();
+}
+
+async function endLog(buildId, status) {
+  const item = {
+    Key: {
+      test_build: {
+        S: buildId
+      }
+    },
+    UpdateExpression: `SET #status = :status`,
+    ExpressionAttributeValues: {
+      ":status": { S: status }
+    },
+    ExpressionAttributeNames: {
+      "#status": "status"
+    },
+    TableName: process.env.LOG_TABLE_NAME
+  };
+  await dynamodb.updateItem(item).promise();
 }
 
 async function putResultsInDB(key, testResult) {

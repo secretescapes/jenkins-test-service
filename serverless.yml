@@ -35,6 +35,7 @@ functions:
     timeout: 28
     environment:
       TABLE_NAME: test_results-${self:provider.stage}
+      LOG_TABLE_NAME: test_results_log-${self:provider.stage}
 
 resources: # CloudFormation template syntax
   Resources:
@@ -47,6 +48,19 @@ resources: # CloudFormation template syntax
             AttributeType: "S"
         KeySchema:
           - AttributeName: test_name
+            KeyType: HASH
+        ProvisionedThroughput:
+          ReadCapacityUnits: 1
+          WriteCapacityUnits: 1
+    testResultsLog:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: test_results_log-${self:provider.stage}
+        AttributeDefinitions:
+          - AttributeName: test_build
+            AttributeType: "S"
+        KeySchema:
+          - AttributeName: test_build
             KeyType: HASH
         ProvisionedThroughput:
           ReadCapacityUnits: 1
