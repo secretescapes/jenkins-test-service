@@ -16,6 +16,12 @@ const lambda = new AWS.Lambda({
   region: "eu-west-1"
 });
 
+/**
+ * This function is schedule to run hourly, MON-THU (see serverless.yml).
+ * It gets the most recent builds in Jenkins and the last builds that were collected,
+ * then, it calculates which builds are new in Jenkins and should be collected (max 10).
+ * Then, it invokes the collector lambda.
+ */
 module.exports.triggerScan = async event => {
   try {
     const lastBuilds = await fetchBuildsInfo();
@@ -39,10 +45,17 @@ module.exports.triggerScan = async event => {
     console.error(`Error: ${err}`);
   }
 };
+
+/**
+ * Collects test results and stores information about the failed ones
+ * in DynamoDB. This lambda can be invoked from an http request or from
+ * another lambda.
+ */
 module.exports.collectTestResults = async event => {
   console.log(JSON.stringify(event));
   var statusCode;
   var body;
+  // The buildId is in a different place if the invokation is from API or another Lambda.
   const buildId = event.pathParameters
     ? event.pathParameters.buildId
     : event.buildId;
@@ -142,6 +155,11 @@ async function endLog(buildId, status) {
   await dynamodb.updateItem(item).promise();
 }
 
+/**
+ * Stores a new test (key) in DynamoDB.
+ * @param {string} key
+ * @param {object} testResult
+ */
 async function putResultsInDB(key, testResult) {
   const putItemParams = {
     Item: {
@@ -165,6 +183,13 @@ async function putResultsInDB(key, testResult) {
   }
 }
 
+/**
+ * Updates the information stored in DynamoDB for a particular test (key).
+ * If the information about this build is already in the DB, it skips.
+ * @param {string} key
+ * @param {object} existingTestResults
+ * @param {object} newTestResults
+ */
 async function updateResultsInDB(key, existingTestResults, newTestResults) {
   if (
     !existingTestResults
@@ -216,6 +241,9 @@ async function getResultsFromDB(key) {
   }
 }
 
+/**
+ * Fetches the builds collected and stored in dynamoDB for the last 5 days.
+ */
 async function fetchLastRunBuilds() {
   var d = new Date();
   d.setDate(d.getDate() - 5);
@@ -233,6 +261,9 @@ async function fetchLastRunBuilds() {
   return result.Items.map(item => item.test_build.S);
 }
 
+/**
+ * Fetches all the recent builds from Jenkins.
+ */
 async function fetchBuildsInfo() {
   const buildsInfo = await axios.get(
     `${process.env.JENKINS_BRANCH_URL}/api/json`,
@@ -250,6 +281,12 @@ async function fetchBuildsInfo() {
     .map(item => parseInt(item.number))
     .filter(item => item <= lastCompletedBuild);
 }
+/**
+ * Fetches information about the buildId. It makes 2 requests to Jenkins,
+ * one to get information about time the build was run and the overall result (buildResult).
+ * Then, another request is made to fetch test Results. Only failed results will be returned.
+ * @param {number} buildId
+ */
 async function fetchBuild(buildId) {
   console.time("fetchBuild");
   const buildInfoResponse = await axios.get(
