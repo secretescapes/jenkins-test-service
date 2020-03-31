@@ -244,7 +244,7 @@ async function fetchLastRunBuilds() {
 
 async function fetchBuildsInfo() {
   const buildsInfo = await axios.get(
-    `https://jenkins.secretescapes.com/job/secret-escapes/job/master/api/json`,
+    `${process.env.JENKINS_BRANCH_URL}/api/json`,
     {
       auth: {
         username: process.env.JENKINS_USERNAME,
@@ -262,7 +262,7 @@ async function fetchBuildsInfo() {
 async function fetchBuild(buildId) {
   console.time("fetchBuild");
   const buildInfoResponse = await axios.get(
-    `https://jenkins.secretescapes.com/job/secret-escapes/job/master/${buildId}/api/json`,
+    `${process.env.JENKINS_BRANCH_URL}/${buildId}/api/json`,
     {
       auth: {
         username: process.env.JENKINS_USERNAME,
@@ -283,7 +283,7 @@ async function fetchBuild(buildId) {
   };
 
   const testReportResponse = await axios.get(
-    `https://jenkins.secretescapes.com/job/secret-escapes/job/master/${buildId}/testReport/api/json?tree=suites[cases[className,name,age,status,duration,errorDetails,errorStackTrace,skipped,skippedMessage]]`,
+    `${process.env.JENKINS_BRANCH_URL}/${buildId}/testReport/api/json?tree=suites[cases[className,name,age,status,duration,errorDetails,errorStackTrace,skipped,skippedMessage]]`,
     {
       auth: {
         username: process.env.JENKINS_USERNAME,
