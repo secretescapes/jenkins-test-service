@@ -25,6 +25,8 @@ plugins:
 functions:
   triggerScan:
     handler: handler.triggerScan
+    events:
+      - schedule: cron(0 8-18 ? * MON-THU *)
     environment:
       TABLE_NAME: test_results-${self:provider.stage}
       LOG_TABLE_NAME: test_results_log-${self:provider.stage}

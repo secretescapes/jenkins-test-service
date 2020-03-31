@@ -171,15 +171,6 @@ async function updateResultsInDB(key, existingTestResults, newTestResults) {
       .map(result => result.buildId)
       .includes(newTestResults.buildId)
   ) {
-    ///
-    if (
-      key.startsWith(
-        "CMSJsTest.webRedirectSale-loading-view: A default territory is set to ac"
-      )
-    ) {
-      console.log(`-------> ${JSON.stringify(newTestResults)}`);
-    }
-    ///
     const updateItemParams = {
       Key: {
         test_name: {
