@@ -7,14 +7,44 @@ require("dotenv").config();
 const dynamoDbParams = {
   region: "eu-west-1"
 };
+
 if (process.env.LOCAL_DYNAMODB_ENDPOINT !== "") {
   dynamoDbParams["endpoint"] = process.env.LOCAL_DYNAMODB_ENDPOINT;
 }
 const dynamodb = new AWS.DynamoDB(dynamoDbParams);
+const lambda = new AWS.Lambda({
+  region: "eu-west-1"
+});
 
-module.exports.collectTestResults = async event => {
+module.exports.triggerScan = async event => {
   try {
-    const buildId = event.pathParameters.buildId;
+    const lastBuilds = await fetchBuildsInfo();
+    console.log(JSON.stringify(lastBuilds));
+    const mostRecentBuildFetched = Math.max(...(await fetchLastRunBuilds()));
+    const buildsToFetch = lastBuilds
+      .slice(0, lastBuilds.indexOf(mostRecentBuildFetched))
+      .slice(0, 10);
+    console.log(`Builds to fetch: ${buildsToFetch}`);
+    for (const buildId of buildsToFetch) {
+      const params = {
+        FunctionName: process.env.COLLECT_LAMBDA_NAME,
+        InvocationType: "Event",
+        Payload: JSON.stringify({ buildId })
+      };
+      console.log(`INVOKING: ${JSON.stringify(params)}`);
+      await lambda.invoke(params).promise();
+    }
+    return buildsToFetch;
+  } catch (err) {
+    console.error(`Error: ${err}`);
+  }
+};
+module.exports.collectTestResults = async event => {
+  console.log(JSON.stringify(event));
+  try {
+    const buildId = event.pathParameters
+      ? event.pathParameters.buildId
+      : event.buildId;
     if (!buildId) {
       return {
         statusCode: 400,
@@ -23,7 +53,9 @@ module.exports.collectTestResults = async event => {
     }
     await startLog(buildId);
     const tests = await fetchBuild(buildId);
-    await storeResults(tests);
+    if (tests) {
+      await storeResults(tests);
+    }
 
     console.log(`Successfuly collected results for ${buildId}`);
     await endLog(buildId, "COMPLETED");
@@ -66,6 +98,7 @@ async function storeResults(testResults) {
       }
     } catch (err) {
       console.error(err);
+      throw err;
     }
   }
   console.log(`[END] StoreResults`);
@@ -75,10 +108,13 @@ async function startLog(buildId) {
   const item = {
     Item: {
       test_build: {
-        S: buildId
+        S: `${buildId}`
       },
       status: {
         S: "RUNNING"
+      },
+      started_at: {
+        S: new Date().toISOString()
       }
     },
     TableName: process.env.LOG_TABLE_NAME
@@ -90,7 +126,7 @@ async function endLog(buildId, status) {
   const item = {
     Key: {
       test_build: {
-        S: buildId
+        S: `${buildId}`
       }
     },
     UpdateExpression: `SET #status = :status`,
@@ -177,6 +213,40 @@ async function getResultsFromDB(key) {
   }
 }
 
+async function fetchLastRunBuilds() {
+  var d = new Date();
+  d.setDate(d.getDate() - 5);
+  var params = {
+    ExpressionAttributeValues: {
+      ":a": {
+        S: d.toISOString()
+      }
+    },
+    FilterExpression: "started_at > :a",
+    ProjectionExpression: "test_build",
+    TableName: process.env.LOG_TABLE_NAME
+  };
+  const result = await dynamodb.scan(params).promise();
+  return result.Items.map(item => item.test_build.S);
+}
+
+async function fetchBuildsInfo() {
+  const buildsInfo = await axios.get(
+    `https://jenkins.secretescapes.com/job/secret-escapes/job/master/api/json`,
+    {
+      auth: {
+        username: process.env.JENKINS_USERNAME,
+        password: process.env.JENKINS_PASSWORD
+      }
+    }
+  );
+  const lastCompletedBuild = parseInt(
+    buildsInfo.data.lastCompletedBuild.number
+  );
+  return buildsInfo.data.builds
+    .map(item => parseInt(item.number))
+    .filter(item => item <= lastCompletedBuild);
+}
 async function fetchBuild(buildId) {
   console.time("fetchBuild");
   const buildInfoResponse = await axios.get(
@@ -188,6 +258,11 @@ async function fetchBuild(buildId) {
       }
     }
   );
+
+  if (buildInfoResponse.data.result == "ABORTED") {
+    console.log(`Build ${buildId} was aborted. Skipping.`);
+    return [];
+  }
 
   const buildInfo = {
     buildTimestamp: buildInfoResponse.data.timestamp,

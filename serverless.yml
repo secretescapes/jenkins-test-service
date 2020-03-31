@@ -10,6 +10,7 @@ provider:
       Action:
         - "cloudwatch:*"
         - "dynamodb:*"
+        - lambda:InvokeFunction
       Resource: "*"
 
 custom:
@@ -22,6 +23,12 @@ plugins:
   - serverless-offline
 
 functions:
+  triggerScan:
+    handler: handler.triggerScan
+    environment:
+      TABLE_NAME: test_results-${self:provider.stage}
+      LOG_TABLE_NAME: test_results_log-${self:provider.stage}
+      COLLECT_LAMBDA_NAME: jenkins-test-service-${self:provider.stage}-collectTestResults
   collectTestResults:
     handler: handler.collectTestResults
     events:
@@ -39,7 +46,7 @@ functions:
 
 resources: # CloudFormation template syntax
   Resources:
-    usersTable:
+    testResults:
       Type: AWS::DynamoDB::Table
       Properties:
         TableName: test_results-${self:provider.stage}
