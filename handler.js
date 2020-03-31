@@ -41,10 +41,12 @@ module.exports.triggerScan = async event => {
 };
 module.exports.collectTestResults = async event => {
   console.log(JSON.stringify(event));
+  var statusCode;
+  var body;
+  const buildId = event.pathParameters
+    ? event.pathParameters.buildId
+    : event.buildId;
   try {
-    const buildId = event.pathParameters
-      ? event.pathParameters.buildId
-      : event.buildId;
     if (!buildId) {
       return {
         statusCode: 400,
@@ -58,20 +60,19 @@ module.exports.collectTestResults = async event => {
     }
 
     console.log(`Successfuly collected results for ${buildId}`);
-    await endLog(buildId, "COMPLETED");
-    return {
-      statusCode: 200
-    };
+    statusCode = 200;
   } catch (err) {
     console.error(`ERROR: ${err}`);
-    try {
-      await endLog(buildId, "FAILED");
-    } catch (err) {}
-    return {
-      statusCode: 500,
-      body: JSON.stringify(err)
-    };
+    statusCode = 500;
+    body = JSON.stringify(err);
   }
+  try {
+    await endLog(buildId, "COMPLETED");
+  } catch (err) {}
+  return {
+    statusCode,
+    body
+  };
 };
 
 async function storeResults(testResults) {
@@ -170,13 +171,24 @@ async function updateResultsInDB(key, existingTestResults, newTestResults) {
       .map(result => result.buildId)
       .includes(newTestResults.buildId)
   ) {
+    ///
+    if (
+      key.startsWith(
+        "CMSJsTest.webRedirectSale-loading-view: A default territory is set to ac"
+      )
+    ) {
+      console.log(`-------> ${JSON.stringify(newTestResults)}`);
+    }
+    ///
     const updateItemParams = {
       Key: {
         test_name: {
           S: key
         }
       },
-      UpdateExpression: `ADD #results :value, #failed_in :buildId`,
+      UpdateExpression: `ADD #results :value, ${
+        newTestResults.status == "FAILED" ? "#failed_in :buildId" : ""
+      }`,
       ExpressionAttributeValues: {
         ":value": { SS: [JSON.stringify(newTestResults)] },
         ":buildId": { SS: [newTestResults.buildId] }
@@ -287,7 +299,8 @@ async function fetchBuild(buildId) {
         ...buildInfo,
         name: c.name,
         className: c.className,
-        status: c.status == "PASSED" ? c.status : "FAILED",
+        status:
+          c.status == "PASSED" || c.status == "FIXED" ? c.status : "FAILED",
         duration: c.duration,
         errorDetails: c.errorDetails,
         errorStackTrace: c.errorStackTrace,
